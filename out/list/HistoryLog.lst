@@ -1,0 +1,74 @@
+C51 COMPILER V9.00   HISTORYLOG                                                            11/07/2015 14:53:13 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE HISTORYLOG
+OBJECT MODULE PLACED IN ..\out\obj\HistoryLog.obj
+COMPILER INVOKED BY: C:\Program Files\Keil\C51\BIN\C51.EXE ..\source\HistoryLog.c LARGE BROWSE INCDIR(..\OS;..\include) 
+                    -DEBUG OBJECTEXTEND PRINT(..\out\list\HistoryLog.lst) OBJECT(..\out\obj\HistoryLog.obj)
+
+line level    source
+
+   1          #include "sys.h"
+   2          #include "SysClk.h"
+   3          #include "eeprom.h"
+   4          
+   5          #include "HistoryLog.h"
+   6          
+   7          void SaveAlarmLog(unsigned char Name, unsigned char Case, unsigned char Zone)
+   8          {
+   9   1              unsigned long *pDate;
+  10   1              unsigned long Date;
+  11   1              
+  12   1              if(g_SystemParam.HistoryLogNum > MAX_HISTORY_LOG_NUM)
+  13   1                      return;
+  14   1              
+  15   1              memset(g_HostCommonBuf, 0, HOST_COMMON_BUF_SIZE);
+  16   1              EE_Read_Data(EE_HISTORY_LOG_START_ADDRESS, g_HostCommonBuf, HISTORY_LOG_LENGTH*g_SystemParam.HistoryLogNu
+             -m);
+  17   1              pDate = (unsigned long *)(g_HostCommonBuf+HISTORY_LOG_LENGTH*g_SystemParam.HistoryLogNum);
+  18   1              Date = (g_RTC.Year&0x1f);
+  19   1              *pDate = (Date<<27);
+  20   1              Date = (g_RTC.Month&0x0f);
+  21   1              *pDate |= (Date<<23);
+  22   1              Date = (g_RTC.Day&0x1f);
+  23   1              *pDate |= (Date<<18);
+  24   1              Date = (g_RTC.Hour&0x1f);
+  25   1              *pDate |= (Date<<13);
+  26   1              Date = (g_RTC.Minute&0x7f);
+  27   1              *pDate |= (Date<<6);
+  28   1              Date = (g_RTC.Second&0x3f);
+  29   1              *pDate |= Date;
+  30   1              *(g_HostCommonBuf+HISTORY_LOG_LENGTH*g_SystemParam.HistoryLogNum + 4) = (Name<<4)|Case;
+  31   1              *(g_HostCommonBuf+HISTORY_LOG_LENGTH*g_SystemParam.HistoryLogNum + 5) = Zone;   
+  32   1              
+  33   1              if(g_SystemParam.HistoryLogNum < MAX_HISTORY_LOG_NUM)
+  34   1              {
+  35   2                      g_SystemParam.HistoryLogNum++;
+  36   2                      EE_WriteSector(EE_HISTORY_LOG_START_ADDRESS, HISTORY_LOG_LENGTH*g_SystemParam.HistoryLogNum, g_HostCommo
+             -nBuf);
+  37   2              }
+  38   1              else
+  39   1              {
+  40   2                      EE_WriteSector(EE_HISTORY_LOG_START_ADDRESS, HISTORY_LOG_LENGTH*g_SystemParam.HistoryLogNum, g_HostCommo
+             -nBuf+HISTORY_LOG_LENGTH);
+  41   2              }
+  42   1      
+  43   1              SysParamToEeprom();
+  44   1      }
+  45          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    708    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----      10
+C51 COMPILER V9.00   HISTORYLOG                                                            11/07/2015 14:53:13 PAGE 2   
+
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,308 @@
+C51 COMPILER V9.00   EEPROM                                                                11/07/2015 14:53:11 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE EEPROM
+OBJECT MODULE PLACED IN ..\out\obj\eeprom.obj
+COMPILER INVOKED BY: C:\Program Files\Keil\C51\BIN\C51.EXE ..\source\eeprom.c LARGE BROWSE INCDIR(..\OS;..\include) DEBU
+                    -G OBJECTEXTEND PRINT(..\out\list\eeprom.lst) OBJECT(..\out\obj\eeprom.obj)
+
+line level    source
+
+   1          #include "sys.h"           
+   2          #include "eeprom.h"
+   3          #include "RF_remote.h"
+   4          #include "uart.h"
+   5          
+   6          code uchar HostDefaultIP[4]={192,168,1,18};
+   7          code uchar HostDefaultGateIP[4]={192,168,1,1};
+   8          code uchar HostDefaultSubMask[4]={255,255,255,0};
+   9          code uchar HostDefaultMac[6]={0x12,0x34,0x56,0x78,0x9a,0xbc};
+  10          code uchar ServerDefaultIP[4]={112,74,205,113};//{220,249,248,66};//{192,168,3,174};//{112,74,205,113};
+  11          void IapIdle()
+  12          {
+  13   1              IAP_CONTR = 0;                 
+  14   1              IAP_CMD = 0;                 
+  15   1              IAP_TRIG = 0;             
+  16   1              IAP_ADDRH = 0x80;       
+  17   1              IAP_ADDRL = 0;
+  18   1      }
+  19          
+  20          unsigned char IapReadByte(unsigned int addr)
+  21          {
+  22   1              unsigned char dat;  
+  23   1              
+  24   1              IAP_CONTR = ENABLE_IAP;       
+  25   1              IAP_CMD = CMD_READ;           
+  26   1              IAP_ADDRL = addr;            
+  27   1              IAP_ADDRH = addr >> 8;          
+  28   1              IAP_TRIG = 0x5a;              
+  29   1              IAP_TRIG = 0xa5;            
+  30   1              _nop_();                        
+  31   1              dat = IAP_DATA;           
+  32   1              IapIdle();                      
+  33   1              return dat;                   
+  34   1      }
+  35          
+  36          
+  37          void IapProgramByte(unsigned int addr, unsigned char dat)
+  38          {
+  39   1              IAP_CONTR = ENABLE_IAP;       
+  40   1              IAP_CMD = CMD_PROGRAM;  
+  41   1              IAP_ADDRL = addr;             
+  42   1              IAP_ADDRH = addr >> 8;      
+  43   1              IAP_DATA = dat;            
+  44   1              IAP_TRIG = 0x5a;             
+  45   1              IAP_TRIG = 0xa5;          
+  46   1              _nop_();                      
+  47   1              IapIdle();
+  48   1      }
+  49          
+  50          
+  51          void IapEraseSector(unsigned int addr)
+  52          {
+  53   1              IAP_CONTR = ENABLE_IAP;       
+  54   1              IAP_CMD = CMD_ERASE;     
+C51 COMPILER V9.00   EEPROM                                                                11/07/2015 14:53:11 PAGE 2   
+
+  55   1              IAP_ADDRL = addr;          
+  56   1              IAP_ADDRH = addr >> 8;       
+  57   1              IAP_TRIG = 0x5a;       
+  58   1              IAP_TRIG = 0xa5;  
+  59   1              _nop_();     
+  60   1              _nop_();
+  61   1              IapIdle();
+  62   1      }
+  63          
+  64          unsigned char  EE_Write_Sector(unsigned int begin_addr, unsigned int counter, unsigned char *da)
+  65          {
+  66   1      
+  67   1              unsigned int index = 0;
+  68   1              unsigned int Byte_Addr = 0;
+  69   1              unsigned int sector_addr = 0;
+  70   1              unsigned char temp;
+  71   1              unsigned char Copy_Flag;
+  72   1              unsigned char Inc_Num;
+  73   1      
+  74   1              if(counter > EE_SECTOR_SIZE)
+  75   1                      return FALSE;
+  76   1              Byte_Addr = begin_addr & 0x01ff;
+  77   1      
+  78   1              if((Byte_Addr + counter) > EE_SECTOR_SIZE)
+  79   1                      return FALSE;
+  80   1              OSSemPend(SEM_STC_FLASH,0);
+  81   1              IapEraseSector(EE_BACK_UP_SECTOR_ADDRESS);
+  82   1              sector_addr = (begin_addr & 0xfe00);
+  83   1              Copy_Flag = DISABLE;
+  84   1              Inc_Num = 0;
+  85   1              for(index = 0; index < EE_SECTOR_SIZE; index++)
+  86   1              {
+  87   2                      if((index == Byte_Addr)
+  88   2                              ||(Copy_Flag == ENABLE))
+  89   2                      {
+  90   3                              Copy_Flag = ENABLE;
+  91   3                              temp = *da++;
+  92   3                              IapProgramByte(EE_BACK_UP_SECTOR_ADDRESS+index, temp);
+  93   3                              Inc_Num++;
+  94   3                              if(Inc_Num == counter)
+  95   3                              {
+  96   4                                      Copy_Flag = DISABLE;
+  97   4                              }       
+  98   3                      }
+  99   2                      else
+ 100   2                      {
+ 101   3                              temp = IapReadByte(sector_addr+index);
+ 102   3                              IapProgramByte(EE_BACK_UP_SECTOR_ADDRESS+index, temp);                  
+ 103   3                      }
+ 104   2              }
+ 105   1              IapEraseSector(sector_addr);
+ 106   1              for(index = 0; index< EE_SECTOR_SIZE; index++)
+ 107   1              {
+ 108   2                      temp = IapReadByte(EE_BACK_UP_SECTOR_ADDRESS+index);
+ 109   2                      IapProgramByte(sector_addr+index, temp);
+ 110   2              }
+ 111   1              
+ 112   1              IapIdle();
+ 113   1              OSSemPost(SEM_STC_FLASH);
+ 114   1              return TRUE;
+ 115   1      
+ 116   1      }
+C51 COMPILER V9.00   EEPROM                                                                11/07/2015 14:53:11 PAGE 3   
+
+ 117          
+ 118          unsigned char EE_WriteSector(unsigned int begin_addr, unsigned int counter, unsigned char *da)
+ 119          {
+ 120   1      
+ 121   1              unsigned int index;
+ 122   1              unsigned int Byte_Addr;
+ 123   1              unsigned int sector_addr;
+ 124   1              
+ 125   1              if(counter > EE_SECTOR_SIZE)
+ 126   1                      return FALSE;
+ 127   1              Byte_Addr = begin_addr & 0x01ff;
+ 128   1      
+ 129   1              if((Byte_Addr + counter) > EE_SECTOR_SIZE)
+ 130   1                      return FALSE;
+ 131   1              OSSemPend(SEM_STC_FLASH,0);
+ 132   1              if(Byte_Addr == 0)
+ 133   1              {
+ 134   2                      sector_addr = (begin_addr & 0xfe00);
+ 135   2                      IapEraseSector(sector_addr);
+ 136   2              }
+ 137   1              for(index = 0; index < counter; index++)
+ 138   1              {
+ 139   2                      IapProgramByte(begin_addr+index, *da++);
+ 140   2              }
+ 141   1              OSSemPost(SEM_STC_FLASH);
+ 142   1              return TRUE;
+ 143   1      
+ 144   1      }
+ 145          
+ 146          void EE_Read_Data(unsigned int adr, unsigned char *buf, unsigned char size)
+ 147          {
+ 148   1              unsigned char index;
+ 149   1              
+ 150   1              OSSemPend(SEM_STC_FLASH,0);
+ 151   1              for(index = 0; index< size; index++)
+ 152   1              {
+ 153   2                      *buf++ = IapReadByte(adr+index);
+ 154   2              }
+ 155   1              OSSemPost(SEM_STC_FLASH);
+ 156   1      }
+ 157          
+ 158          unsigned int CaculateChecksum(unsigned char *buf, unsigned char len)
+ 159          {
+ 160   1              unsigned char index;
+ 161   1              unsigned int check_sum;
+ 162   1              
+ 163   1              check_sum = 0;
+ 164   1              for(index=0; index<len; index++)
+ 165   1              {
+ 166   2                      check_sum += *buf++;
+ 167   2              }
+ 168   1      
+ 169   1              return check_sum;
+ 170   1      }
+ 171          
+ 172          void SysParamLoadDefault(void)
+ 173          {
+ 174   1              g_SystemParam.ParamInitFlag = EE_DATA_INIT_FLAG;
+ 175   1              g_SystemParam.SystemStatus = SYSTEM_DISARMED_STATUS;
+ 176   1      #ifdef MAX_SIREN_3_MINUTE
+ 177   1              g_SystemParam.SirenLastingTime = 1;
+ 178   1      #else
+C51 COMPILER V9.00   EEPROM                                                                11/07/2015 14:53:11 PAGE 4   
+
+                      g_SystemParam.SirenLastingTime = 0x05;
+              #endif
+ 181   1              g_SystemParam.AutoUploadTime = AUTO_UPLOAD_SYSTEM_STATUS_TIME;
+ 182   1              g_SystemParam.SystemLanguage = LANGUAGE_ENGLISH;
+ 183   1              memcpy(g_SystemParam.SystemPassword, "1234", 4);
+ 184   1              g_SystemParam.DebugInforOutput = 0;//ENABLE;//DISABLE;
+ 185   1              g_SystemParam.RegisteredRemoteNum = 0;
+ 186   1              g_SystemParam.RegisteredDoorBellNum = 0;
+ 187   1              g_SystemParam.RegisteredWirelessAccessoryNum = 0;
+ 188   1              g_SystemParam.HistoryLogNum = 0;
+ 189   1              g_SystemParam.SirenMuteFlag = 1;
+ 190   1              g_SystemParam.RingTime = 3;
+ 191   1              g_SystemParam.CallRecycleTime = 3;
+ 192   1              g_SystemParam.AccompanyToneFlag = FALSE;
+ 193   1              g_SystemParam.ArmDisarmSmsInforFlag = FALSE;
+ 194   1              g_SystemParam.AutoArmDisarmFlag = FALSE;
+ 195   1              g_SystemParam.AcSwitchInforFlag = FALSE;;
+ 196   1      
+ 197   1              g_SystemParam.HostID[0] = CBYTE[CPU_ID_ADD_END-3];
+ 198   1              g_SystemParam.HostID[1] = CBYTE[CPU_ID_ADD_END-4];
+ 199   1              g_SystemParam.HostID[2] = CBYTE[CPU_ID_ADD_END-5];
+ 200   1      
+ 201   1              g_SystemParam.HostMacAdr[0] = CBYTE[CPU_ID_ADD_END];
+ 202   1              g_SystemParam.HostMacAdr[1] = CBYTE[CPU_ID_ADD_END-1];
+ 203   1              g_SystemParam.HostMacAdr[2] = CBYTE[CPU_ID_ADD_END-2];
+ 204   1              g_SystemParam.HostMacAdr[3] = CBYTE[CPU_ID_ADD_END-3];
+ 205   1              g_SystemParam.HostMacAdr[4] = CBYTE[CPU_ID_ADD_END-4];
+ 206   1              g_SystemParam.HostMacAdr[5] = CBYTE[CPU_ID_ADD_END-5];  
+ 207   1      
+ 208   1              memcpy(g_SystemParam.HostIPAdr, HostDefaultIP, IP_ADDRESS_LENGTH);
+ 209   1              memcpy(g_SystemParam.HostSubMask, HostDefaultSubMask, IP_ADDRESS_LENGTH);
+ 210   1              memcpy(g_SystemParam.HostGate, HostDefaultGateIP, IP_ADDRESS_LENGTH);
+ 211   1              memcpy(g_SystemParam.TcpIpServerAdr, ServerDefaultIP, IP_ADDRESS_LENGTH);
+ 212   1      
+ 213   1              g_SystemParam.TcpIpServerPort = TCP_DEFAULT_PORT;
+ 214   1              g_SystemParam.UdpLocalPort = UDP_DEFAULT_PORT;
+ 215   1              g_SystemParam.UdpSmartLinkPort = UDP_SMART_LINK_DEFAULT_PORT;
+ 216   1              
+ 217   1              g_SystemParam.DelayArmTime = 0;
+ 218   1              g_SystemParam.DelayAlarmTime = 0;
+ 219   1              g_SystemParam.AutoArmTime = 0;
+ 220   1              g_SystemParam.AutoDisarmTime = 0;
+ 221   1      
+ 222   1              g_SystemParam.RfAdrMapHead = 0;
+ 223   1              g_SystemParam.RfAdrMapTotal = 0;
+ 224   1              g_SystemParam.CheckSum = CaculateChecksum((unsigned char *)&g_SystemParam, sizeof(g_SystemParam)-2);
+ 225   1      }
+ 226          
+ 227          void SysParamFromEeprom(void)
+ 228          {
+ 229   1              unsigned int check_sum;
+ 230   1              
+ 231   1              EE_Read_Data(EE_SYS_PARAM_ADR, (unsigned char *)&g_SystemParam, sizeof(g_SystemParam));
+ 232   1              check_sum = CaculateChecksum((unsigned char *)&g_SystemParam, sizeof(g_SystemParam)-2);
+ 233   1              if(check_sum != g_SystemParam.CheckSum)
+ 234   1              {
+ 235   2                      SysPrintf("\r\nsystem param from back up.");
+ 236   2                      EE_Read_Data(EE_SYS_PARAM_BACKUP_ADR, (unsigned char *)&g_SystemParam, sizeof(g_SystemParam));
+ 237   2                      check_sum = CaculateChecksum((unsigned char *)&g_SystemParam, sizeof(g_SystemParam)-2);
+ 238   2                      if(check_sum != g_SystemParam.CheckSum)
+ 239   2                      {
+ 240   3                              SysPrintf("\r\nsystem param from default.");
+C51 COMPILER V9.00   EEPROM                                                                11/07/2015 14:53:11 PAGE 5   
+
+ 241   3                              SysParamLoadDefault();
+ 242   3                              EE_WriteSector(EE_SYS_PARAM_ADR, sizeof(g_SystemParam), (unsigned char *)&g_SystemParam);
+ 243   3                              EE_WriteSector(EE_SYS_PARAM_BACKUP_ADR, sizeof(g_SystemParam), (unsigned char *)&g_SystemParam);
+ 244   3                              IapEraseSector(EE_RF_ADDRESS_MAP_START);
+ 245   3                      }
+ 246   2              }
+ 247   1      }
+ 248          
+ 249          void SysParamToEeprom(void)
+ 250          {
+ 251   1              unsigned int check_sum;
+ 252   1              
+ 253   1              check_sum = CaculateChecksum((unsigned char *)&g_SystemParam, sizeof(g_SystemParam)-2);
+ 254   1              g_SystemParam.CheckSum = check_sum;
+ 255   1              EE_WriteSector(EE_SYS_PARAM_ADR, sizeof(g_SystemParam), (unsigned char *)&g_SystemParam);
+ 256   1              EE_WriteSector(EE_BACK_UP_SECTOR_ADDRESS, sizeof(g_SystemParam), (unsigned char *)&g_SystemParam);              
+ 257   1      }
+ 258          
+ 259          void EE_Data_Default(void)
+ 260          {       
+ 261   1              unsigned char Index;
+ 262   1              
+ 263   1              SysPrintf("\r\nSystem default setting!");
+ 264   1              OSSemPend(SEM_STC_FLASH,0);
+ 265   1              for(Index=0; Index<EE_SECTOR_TOTAL; Index++)
+ 266   1              {
+ 267   2                      IapEraseSector(EE_1TH_SECTOR_BASE_ADDRESS+EE_SECTOR_SIZE*Index);
+ 268   2                      DelayNop(100);
+ 269   2              }
+ 270   1              OSSemPost(SEM_STC_FLASH);
+ 271   1              SysParamLoadDefault();
+ 272   1              EE_WriteSector(EE_SYS_PARAM_ADR, sizeof(g_SystemParam), (unsigned char *)&g_SystemParam);
+ 273   1              EE_WriteSector(EE_SYS_PARAM_BACKUP_ADR, sizeof(g_SystemParam), (unsigned char *)&g_SystemParam);
+ 274   1      }
+ 275          
+ 276          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1400    ----
+   CONSTANT SIZE    =    111    ----
+   XDATA SIZE       =   ----      40
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

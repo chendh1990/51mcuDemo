@@ -1,0 +1,2 @@
+---- SYS_MSG_KEY_PAD_ARM Matches (1 in 1 files) ----
+sys.h (F:\DOOR_BELL\DOOR_BELL\DOOR_BELL\include) line 317 : 	SYS_MSG_KEY_PAD_ARM           			= 0x0D,  

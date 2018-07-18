@@ -1,0 +1,189 @@
+#ifndef _SMS_H
+#define _SMS_H
+
+#define UNICODE_HEX_LENGHT							4
+#define CTRL_Z										0X1A
+
+
+#define SMS_RECEIVE_NUM								4
+#define MAX_ZONE_RENAME_NUMBER     					9 
+#define MAX_ZONE_NAME_LENGHT     					60 // 30UNICODE*2BYTE=60BYTES
+#define MAX_RFID_NAME_LENGHT     					40 // 30UNICODE*2BYTE=60BYTES
+#define MAX_RFID_RENAME_NUMBER     					4
+
+/////////SMS STATUS///////////
+enum
+{
+	SMS_FREE_STATUS=0,
+	SMS_SET_SEND_STATUS,
+	SMS_SEND_STATUS,
+};
+/////////SEND SMS STATUS///////////
+enum
+{
+	SEND_SMS_INIT=0,
+	SEND_SMS_SET_CMGF,
+	SEND_SMS_SET_CSCS,
+	SEND_SMS_SET_CSMP,
+	SEND_SMS_SET_CMGS,
+	SEND_SMS_INPUT_CONTENT,
+	SEND_SMS_COMPLETE,
+	
+};
+/////////SEND SMS TYPE///////////
+enum
+{
+	SEND_SMS_NULL=0,
+	SEND_SMS_REPLY,
+	SEND_SMS_ALARM_INFOR,
+};
+/////////READ SMS STATUS///////////
+enum
+{
+	READ_SMS_INIT=0,
+	READ_SMS_SET_CMGF,
+	READ_SMS_SET_CSCS,
+	READ_SMS_SET_CSMP,
+	READ_SMS_SET_CMGR,
+	READ_SMS_SET_COMPLETE,
+	READ_SMS_DELETE_SUCCESS,
+	
+};
+/////////////SMS COMMAND SETS//////////
+enum 
+{
+	SMS_CMD_DIGIT_0=0,//  0   /////0
+	SMS_CMD_DIGIT_1,//  1   /////1
+	SMS_CMD_DIGIT_2,//    2   /////2
+	SMS_CMD_DIGIT_3,//  3   /////3
+	SMS_CMD_DIGIT_4,//   4   /////4
+	SMS_CMD_DIGIT_5,//   5   /////5
+	SMS_CMD_DIGIT_6,//    6   /////6
+	SMS_CMD_DIGIT_7,// 7   /////7
+	SMS_CMD_DIGIT_8,//  8   /////8
+	SMS_CMD_DIGIT_9,         //// 9
+
+};
+
+/////////READ SMS STATUS////////
+enum
+{
+	SEND_SMS_FREE_STATUS=0,
+	SEND_SMS_HANDLE_STATUS,
+};
+/////////SEND STATUS////////
+enum
+{
+	DTMF_NULL_STATUS=0,
+	DTMF_ENTRY_STATUS,	
+	DTMF_TALK_BACK_STATUS,
+	DTMF_MONITOR_STATUS,
+};
+///////// SMS MATCH NUMBER////////
+enum
+{
+	SMS_MATCH_NUMBER_NULL=0,
+	SMS_MATCH_NUMBER_FAIL,
+	SMS_MATCH_NUMBER_SUCCESS,
+};
+/////////ZONE ALARM TYPE////////
+enum
+{
+	ZONE_ALARM_SMS=0,
+	ZONE_LOW_VOLTAGE_SMS,	
+	ZONE_REMOVE_SMS,
+};
+//////////////NUMBER CLASS//////////////
+enum
+{
+	TELEPHONE_NUMBER = 0,
+	SMS_NUMBER,		
+};
+
+////////SEND SMS CONTENT DEFINE///////////
+enum 
+{
+////////////RESPOND SMS COMMAND SET///////////////////
+	SMS_RESPOND_NULL = 0,
+	SMS_RESPOND_ERROR,
+	SMS_RESPOND_OK,
+	SMS_RESPOND_COMMAND_0,
+	SMS_RESPOND_COMMAND_1,
+	SMS_RESPOND_COMMAND_2,
+	SMS_RESPOND_COMMAND_3,
+	SMS_RESPOND_COMMAND_4,
+	SMS_RESPOND_COMMAND_5,
+	SMS_RESPOND_COMMAND_6,
+	SMS_RESPOND_COMMAND_7,
+	SMS_RESPOND_COMMAND_8,
+	SMS_RESPOND_COMMAND_9,
+	SMS_RESPOND_SETTING_FAIL,
+	SMS_RESPOND_COMMAND_INQUERY,
+	SMS_RESPOND_COMMAND_RENAME_ZONE,
+	SMS_RESPOND_COMMAND_ENTRY_EXIT_DELAY_TIME,
+	SMS_RESPOND_COMMAND_SIREN_VOLUME_RING_TIME,
+	SMS_RESPOND_COMMAND_DISAM_PASSWORD,
+	SMS_RESPOND_COMMAND_RFID_NAME,
+/////////////COMPONENT INFOR SET///////////////
+	SMS_INFOR_ACCESSORY_LOW_VOLTAGE_ALARM,
+	SMS_INFOR_ACCESSORY_TAMPER_ALARM,
+	SMS_INFOR_HOST_UNIT_LOW_VOLTAGE_ALARM,
+	SMS_INFOR_HOST_UNIT_TAMPER_ALARM,
+	SMS_INFOR_ZONE_HOME_ALARM,
+	SMS_INFOR_ZONE_NORMAL_ALARM,
+	SMS_INFOR_ZONE_24_HOUR_ALARM,
+	SMS_INFOR_ZONE_DELAY_ALARM,
+	SMS_INFOR_RC_SOS_ALARM,
+	SMS_INFOR_HOST_UNIT_SOS_ALARM,
+	SMS_INFOR_WIRE_ZONE_1_ALARM,
+	SMS_INFOR_WIRE_ZONE_2_ALARM,
+	SMS_INFOR_RFID_DISAMED,
+	SMS_INFOR_AC_POWER_FAILURE,
+	SMS_INFOR_AC_POWER_RESTORE,
+	SMS_INFOR_LINE_LOST,
+	SMS_INFOR_LINE_RESTORE,	
+///////////end//////////////
+	SMS_WAIT_RESPOND_RESULTE=0XFF,
+};
+
+/////////RECEIVE SMS HANDLE////////
+enum
+{
+	RECEIVE_SMS_READ=0,
+	RECEIVE_SMS_DELETE,	
+	RECEIVE_SMS_SEND_NUMBER,
+	RECEIVE_SMS_REPLY,
+	RECEIVE_SMS_COMPLETE,	
+};
+/////////SMS TYPE////////
+enum
+{
+	COMMAND_SMS=0,
+	INFOR_SMS,	
+	ALARM_SMS,
+};
+
+typedef struct{
+	unsigned char ReceiveSMSHandleState;
+	unsigned char SMSCount;	
+	unsigned char SMSIndexBuffer[SMS_RECEIVE_NUM];	
+	unsigned int RespondResult;
+	unsigned char SMSSendComplete;	
+}SMS_Var_t;
+
+typedef struct{
+	unsigned char code * Command_Str;
+	unsigned int (*SMS_Command_Fun)(unsigned char *pLocate);
+} SMS_Function_t;
+
+extern SMS_Var_t g_SMSVar;
+
+void SMSInit(void);
+void SMSIndexPush(unsigned char index);
+void GSMReadSMSContent(unsigned char *pVal);
+void GSMInputAscString(unsigned char *pBuf, unsigned char len);
+void GSMReadSMSStatus(void);
+void GSMSendSMSStatus(void);
+
+
+#endif

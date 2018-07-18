@@ -1,0 +1,856 @@
+C51 COMPILER V9.00   SYS                                                                   11/07/2015 14:53:13 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE SYS
+OBJECT MODULE PLACED IN ..\out\obj\sys.obj
+COMPILER INVOKED BY: C:\Program Files\Keil\C51\BIN\C51.EXE ..\source\sys.c LARGE BROWSE INCDIR(..\OS;..\include) DEBUG O
+                    -BJECTEXTEND PRINT(..\out\list\sys.lst) OBJECT(..\out\obj\sys.obj)
+
+line level    source
+
+   1          #include "sys.h"
+   2          #include "SysClk.h"
+   3          #include "timer.h"
+   4          #include "key.h"
+   5          #include "uart.h"
+   6          #include "PCA.h"
+   7          #include "RF_remote.h"
+   8          #include "led.h"
+   9          #include "tone.h"
+  10          #include "eeprom.h"
+  11          #include "HistoryLog.h"
+  12          #include "power.h"
+  13          #include "WIFI.h"
+  14          
+  15          /////////////////////////////////////////////////////////
+  16          xdata MSG_Q_t g_HostQuene;
+  17          xdata MSG_t g_HostMsgBuf[HOST_MSG_BUF_SIZE];
+  18          xdata MSG_t g_HostMsg;
+  19          xdata System_Var_t g_SystemVar;
+  20          xdata System_Param_t g_SystemParam;
+  21          xdata unsigned char g_HostCommonBuf[HOST_COMMON_BUF_SIZE];
+  22          /////////////////////////////////////////////////////////
+  23          xdata uchar g_cSysTasksTimeTable[TASK_TABLE_LENGTH];
+  24          
+  25          void AlarmInforPush(unsigned char Case, unsigned char Name, unsigned char Locate)
+  26          {
+  27   1              unsigned char index;
+  28   1      
+  29   1              for(index=0; index<g_SystemVar.AlarmInforIndex; index++)
+  30   1              {
+  31   2                      if((g_SystemVar.AlarmInforBuffer[index].Case == Case)
+  32   2                              &&(g_SystemVar.AlarmInforBuffer[index].Name == Name)
+  33   2                              &&(g_SystemVar.AlarmInforBuffer[index].Locate == Locate))
+  34   2                      {
+  35   3                              return;
+  36   3                      }
+  37   2              }
+  38   1              
+  39   1              if(g_SystemVar.AlarmInforIndex < ALARM_INFOR_BUFFER_SIZE)
+  40   1              {
+  41   2                      g_SystemVar.AlarmInforIndex++;
+  42   2              }
+  43   1              else
+  44   1              {
+  45   2                      for(index=0; index<(ALARM_INFOR_BUFFER_SIZE-1); index++)
+  46   2                      {
+  47   3                              g_SystemVar.AlarmInforBuffer[index].Case = g_SystemVar.AlarmInforBuffer[index+1].Case;
+  48   3                              g_SystemVar.AlarmInforBuffer[index].Name = g_SystemVar.AlarmInforBuffer[index+1].Name;
+  49   3                              g_SystemVar.AlarmInforBuffer[index].Locate = g_SystemVar.AlarmInforBuffer[index+1].Locate;
+  50   3                      }       
+  51   2              }
+  52   1              g_SystemVar.AlarmInforBuffer[g_SystemVar.AlarmInforIndex-1].Case = Case;
+  53   1              g_SystemVar.AlarmInforBuffer[g_SystemVar.AlarmInforIndex-1].Name = Name;
+  54   1              g_SystemVar.AlarmInforBuffer[g_SystemVar.AlarmInforIndex-1].Locate = Locate;
+C51 COMPILER V9.00   SYS                                                                   11/07/2015 14:53:13 PAGE 2   
+
+  55   1      
+  56   1      }
+  57          
+  58          unsigned char AlarmInforPop(unsigned char *pBuf)
+  59          {
+  60   1              if(g_SystemVar.AlarmInforIndex > 0)
+  61   1              {
+  62   2                      g_SystemVar.AlarmInforIndex--;
+  63   2                      *pBuf = g_SystemVar.AlarmInforBuffer[g_SystemVar.AlarmInforIndex].Case;
+  64   2                      *(pBuf+1) = g_SystemVar.AlarmInforBuffer[g_SystemVar.AlarmInforIndex].Name;
+  65   2                      *(pBuf+2) = g_SystemVar.AlarmInforBuffer[g_SystemVar.AlarmInforIndex].Locate;
+  66   2                      return TRUE;
+  67   2              }       
+  68   1              
+  69   1              return FALSE;
+  70   1      }
+  71          
+  72          void AutoUploadStatusToPlatform(void)
+  73          {
+  74   1              if(--g_SystemVar.AutoUploadTime == 0)
+  75   1              {
+  76   2                      g_SystemVar.AutoUploadTime = g_SystemParam.AutoUploadTime;
+  77   2                      switch(g_SystemParam.SystemStatus)
+  78   2                      {
+  79   3                              case SYSTEM_DISARMED_STATUS:
+  80   3                                      AlarmInforPush(CASE_DISARM, N_HOST, ZONE_SELF);
+  81   3                                      break;
+  82   3      
+  83   3                              case SYSTEM_ARMED_STATUS:
+  84   3                                      AlarmInforPush(CASE_ARM, N_HOST, ZONE_SELF);
+  85   3                                      break;
+  86   3      
+  87   3                              case SYSTEM_HOME_ARMED_STATUS:
+  88   3                                      AlarmInforPush(CASE_BYPASS, N_HOST, ZONE_SELF);
+  89   3                                      break;                          
+  90   3                      }
+  91   2              }
+  92   1      }
+  93          
+  94          void SysCheckAlarmEvent(void)
+  95          {
+  96   1              if(g_SystemVar.UploadPlatformControl == TRUE)
+  97   1              {
+  98   2                      if(g_SystemVar.AlarmInforIndex > 0)
+  99   2                      {
+ 100   3                              if(--g_SystemVar.CheckAlarmEventInterval == 0)
+ 101   3                              {
+ 102   4                                      g_SystemVar.CheckAlarmEventInterval = SYS_CHECK_ALARM_EVENT_INTERVAL_TIME;
+ 103   4                                      HostMsgPost(SYS_MSG_WIFI_UPLOAD_PLATFORM, NULL);
+ 104   4                              }       
+ 105   3                      }
+ 106   2              }
+ 107   1      }
+ 108          
+ 109          void AutoArmDisarmHandle(void)
+ 110          {
+ 111   1              unsigned int Temp;
+ 112   1              
+ 113   1              if((g_SystemParam.AutoArmDisarmFlag == 0)
+ 114   1                      ||((g_SystemParam.AutoArmTime == g_SystemParam.AutoDisarmTime)))
+ 115   1              {
+ 116   2                      return;
+C51 COMPILER V9.00   SYS                                                                   11/07/2015 14:53:13 PAGE 3   
+
+ 117   2              }
+ 118   1              
+ 119   1              Temp = g_RTC.Hour;
+ 120   1              Temp <<= 8;
+ 121   1              Temp += g_RTC.Minute;
+ 122   1              
+ 123   1              if(g_SystemParam.AutoArmTime == Temp)
+ 124   1              {
+ 125   2                      HostMsgPost(SYS_MSG_LEFT_CURRENT_STATUS, SYSTEM_ARMED_STATUS);
+ 126   2              }
+ 127   1      
+ 128   1              if(g_SystemParam.AutoDisarmTime == Temp)
+ 129   1              {
+ 130   2                      HostMsgPost(SYS_MSG_LEFT_CURRENT_STATUS, SYSTEM_DISARMED_STATUS);
+ 131   2              }
+ 132   1      }
+ 133          
+ 134          void SysDelayArmAlarmHandle(void)
+ 135          {
+ 136   1              if(g_SystemVar.DelayArmCount > 0)
+ 137   1              {
+ 138   2                      if(--g_SystemVar.DelayArmCount == 0)
+ 139   2                      {
+ 140   3                              HostMsgPost(SYS_MSG_LEFT_CURRENT_STATUS, g_SystemVar.DelayArmType);
+ 141   3                      }
+ 142   2                      else if(g_WifiVar.cSetConnectApFlag == FALSE)
+ 143   2                      {
+ 144   3                              HostMsgPost(SYS_MSG_PLAY_TONE, BEEP_NORMAL);
+ 145   3                      }
+ 146   2              }
+ 147   1      
+ 148   1              if(g_SystemVar.DelayAlarmCount > 0)
+ 149   1              {
+ 150   2                      if(--g_SystemVar.DelayAlarmCount == 0)
+ 151   2                      {
+ 152   3                              HostMsgPost( SYS_MSG_RF_DELAY_ZONE, g_SystemVar.DelayAlarmParam);
+ 153   3                      }
+ 154   2                      else if(g_WifiVar.cSetConnectApFlag == FALSE)
+ 155   2                      {
+ 156   3                              HostMsgPost(SYS_MSG_PLAY_TONE, BEEP_NORMAL);
+ 157   3                      }
+ 158   2              }       
+ 159   1      }
+ 160          
+ 161          void SysMinuteEventHandle(void)
+ 162          {
+ 163   1              SysPrintf("\r\nSysMinuteEventHandle.");
+ 164   1              AutoArmDisarmHandle();
+ 165   1      }
+ 166          
+ 167          TaskTimeout_t SysSecondEventHandle(void)
+ 168          {
+ 169   1              WifiRoutineHandle();
+ 170   1              SysDelayArmAlarmHandle();
+ 171   1              AutoUploadStatusToPlatform();
+ 172   1              RFRoutineHandle();
+ 173   1              ToneRoutineHandle();
+ 174   1              SysCheckAlarmEvent();
+ 175   1              return SYS_ROUTINE_RUN_INTERVAL;
+ 176   1      }
+ 177          
+ 178          code TaskTable_t g_iSysTasksPtrTable[TASK_TABLE_LENGTH] = 
+C51 COMPILER V9.00   SYS                                                                   11/07/2015 14:53:13 PAGE 4   
+
+ 179          {
+ 180                  SysTimerUnitTask,
+ 181                  ScanKey1,
+ 182                  ScanKey2,
+ 183                  SysSecondEventHandle,
+ 184                  LedTask,
+ 185                  PowerACDetect,
+ 186                  BatteryVoltageCheck,
+ 187                  BeepTask,
+ 188          };
+ 189          
+ 190          void SysDelayArmBeepTone(MSG_t *pMsg)
+ 191          {
+ 192   1              if(g_SystemVar.DelayArmCount > 0)
+ 193   1              {
+ 194   2                      BeepTone(pMsg->Param);
+ 195   2                      if(g_SystemVar.DelayArmCount > 10)
+ 196   2                              SetTimeout(HOST_BEEP_TONE_TIMER, CreateMsg(SYS_MSG_DELAY_ARM_TONE, BEEP_NORMAL), SECOND(1));
+ 197   2                      else
+ 198   2                              SetTimeout(HOST_BEEP_TONE_TIMER, CreateMsg(SYS_MSG_DELAY_ARM_TONE, BEEP_NORMAL), MIllSECOND(5));
+ 199   2              }
+ 200   1              else if(g_SystemVar.DelayAlarmCount > 0)
+ 201   1              {
+ 202   2                      BeepTone(pMsg->Param);
+ 203   2                      if(g_SystemVar.DelayAlarmCount > 10)
+ 204   2                              SetTimeout(HOST_BEEP_TONE_TIMER, CreateMsg(SYS_MSG_DELAY_ARM_TONE, BEEP_NORMAL), SECOND(1));
+ 205   2                      else
+ 206   2                              SetTimeout(HOST_BEEP_TONE_TIMER, CreateMsg(SYS_MSG_DELAY_ARM_TONE, BEEP_NORMAL), MIllSECOND(5));
+ 207   2              }
+ 208   1      }
+ 209          
+ 210          void SysPlayBeepTone(MSG_t *pMsg)
+ 211          {
+ 212   1              BeepTone(pMsg->Param);
+ 213   1      }
+ 214          
+ 215          void SySTaskInit(void)
+ 216          {
+ 217   1              uchar cIndex;
+ 218   1      
+ 219   1              for(cIndex=0; cIndex<TASK_TABLE_LENGTH; cIndex++)
+ 220   1              {
+ 221   2                      g_cSysTasksTimeTable[cIndex] = TASK_DISABLE;
+ 222   2              }
+ 223   1      
+ 224   1              SysTaskEnable(SYS_ROUTINE_TASK_ID, SYS_RUN_TASK_IMMEDIATELY);
+ 225   1      }
+ 226          
+ 227          void SysRunTask (void)
+ 228          {
+ 229   1              uchar cIndex;
+ 230   1      
+ 231   1              for(cIndex=0; cIndex<TASK_TABLE_LENGTH; cIndex++)
+ 232   1              {
+ 233   2                      if(g_cSysTasksTimeTable[cIndex] != TASK_DISABLE)
+ 234   2                      {
+ 235   3                              if(g_cSysTasksTimeTable[cIndex] > 0)
+ 236   3                              {
+ 237   4                                      g_cSysTasksTimeTable[cIndex]--;
+ 238   4                              }
+ 239   3                              else
+ 240   3                              {
+C51 COMPILER V9.00   SYS                                                                   11/07/2015 14:53:13 PAGE 5   
+
+ 241   4                                      g_cSysTasksTimeTable[cIndex] = TASK_TO_RUN;
+ 242   4                                      if(g_iSysTasksPtrTable[cIndex] != NULL)
+ 243   4                                      {
+ 244   5                                              g_cSysTasksTimeTable[cIndex] = g_iSysTasksPtrTable[cIndex]();
+ 245   5                                      }                       
+ 246   4                              }
+ 247   3                      }
+ 248   2              }
+ 249   1      }
+ 250          
+ 251          void SysTaskEnable(UnitTask_t eTask, TaskTimeout_t cTime)
+ 252          {
+ 253   1              g_cSysTasksTimeTable[eTask] = cTime;
+ 254   1      }
+ 255          
+ 256          /////////////////////////////////////////////////////////////////////////////////
+ 257          void HostQueneInit(void)
+ 258          {
+ 259   1              g_HostQuene.cReadIndex = 0;
+ 260   1              g_HostQuene.cWriteIndex = 0;
+ 261   1              g_HostQuene.cBufSize = HOST_MSG_BUF_SIZE;
+ 262   1              g_HostQuene.pMsgBuf = g_HostMsgBuf;
+ 263   1      }
+ 264          
+ 265          //==============================================================
+ 266          MSG_t CreateMsg(unsigned int MsgID, unsigned int Param)
+ 267          {
+ 268   1              MSG_t Msg;
+ 269   1      
+ 270   1              Msg.msgID = MsgID;
+ 271   1              Msg.Param = Param;
+ 272   1      
+ 273   1              return Msg;
+ 274   1      }
+ 275          
+ 276          void HostMsgPost(unsigned int MsgID, unsigned int Param)
+ 277          {
+ 278   1              OS_ENTER_CRITICAL();
+ 279   1              if(HOST_QUENE_PTR->cWriteIndex < HOST_QUENE_PTR->cBufSize)
+ 280   1              {
+ 281   2                      HOST_QUENE_PTR->pMsgBuf[HOST_QUENE_PTR->cWriteIndex].msgID = MsgID;
+ 282   2                      HOST_QUENE_PTR->pMsgBuf[HOST_QUENE_PTR->cWriteIndex].Param = Param;
+ 283   2                      HOST_QUENE_PTR->cWriteIndex++;
+ 284   2              }
+ 285   1              OS_EXIT_CRITICAL();
+ 286   1      }
+ 287          
+ 288          void HostMsgPend(void)
+ 289          {
+ 290   1              uchar cMsgFlag;
+ 291   1              
+ 292   1              while(1)
+ 293   1              {
+ 294   2                      cMsgFlag = TRUE;
+ 295   2                      OS_ENTER_CRITICAL();
+ 296   2                      if(HOST_QUENE_PTR->cReadIndex == HOST_QUENE_PTR->cWriteIndex)
+ 297   2                      {
+ 298   3                              HOST_QUENE_PTR->cReadIndex = 0;
+ 299   3                              HOST_QUENE_PTR->cWriteIndex = 0;
+ 300   3                              cMsgFlag = FALSE;
+ 301   3                      }
+ 302   2                      OS_EXIT_CRITICAL();
+C51 COMPILER V9.00   SYS                                                                   11/07/2015 14:53:13 PAGE 6   
+
+ 303   2                      
+ 304   2                      if(cMsgFlag == TRUE)
+ 305   2                      {
+ 306   3                              //SysPrintf("\r\nHOST_QUENE_PTR->cReadIndex = %d \r\nHOST_QUENE_PTR->cWriteIndex = %d", HOST_QUENE_PTR-
+             ->cReadIndex, HOST_QUENE_PTR->cWriteIndex);
+ 307   3                              break;
+ 308   3                      }
+ 309   2                      OSWait(K_TMO,OS_TICKS_PER_SEC/10);
+ 310   2                      
+ 311   2              }
+ 312   1              
+ 313   1              g_HostMsg.msgID = HOST_QUENE_PTR->pMsgBuf[HOST_QUENE_PTR->cReadIndex].msgID;
+ 314   1              g_HostMsg.Param = HOST_QUENE_PTR->pMsgBuf[HOST_QUENE_PTR->cReadIndex].Param;
+ 315   1              HOST_QUENE_PTR->cReadIndex++;
+ 316   1              //SysPrintf("\r\nHOST msgID = %x Param = %x", pMsg->msgID, pMsg->Param);
+ 317   1      }
+ 318          /////////////////////////////////////////////////////////////////////
+ 319          void SysVarInit(void)
+ 320          {       
+ 321   1              g_SystemVar.SystemLastStatus = SYSTEM_NULL_STATUS;
+ 322   1              g_SystemVar.SystemCurrentStatus = SYSTEM_NULL_STATUS;
+ 323   1              g_SystemVar.SystemNextStatus = g_SystemParam.SystemStatus;
+ 324   1              g_SystemVar.DelayArmStatus = FALSE;
+ 325   1              g_SystemVar.DelayAlarmStatus = FALSE;
+ 326   1              g_SystemVar.SirenStatus = SIREN_OFF;
+ 327   1              g_SystemVar.SirenResuceCount = 0;
+ 328   1              g_SystemVar.PWMFlag = FALSE;
+ 329   1              g_SystemVar.DelayAlarmCount = 0;        
+ 330   1              g_SystemVar.DelayArmCount = 0;  
+ 331   1              g_SystemVar.PlayDoorBell = FALSE;
+ 332   1              g_SystemVar.PlayDoorTimeout = 0;
+ 333   1              g_SystemVar.PlayStartupToneCount = 2;
+ 334   1              g_SystemVar.AutoUploadTime = g_SystemParam.AutoUploadTime;
+ 335   1              g_SystemVar.StartupFlag = TRUE;
+ 336   1              g_SystemVar.UploadPlatformControl = FALSE;
+ 337   1              g_SystemVar.AlarmInforIndex = 0;
+ 338   1              g_SystemVar.CheckAlarmEventInterval = SYS_CHECK_ALARM_EVENT_INTERVAL_TIME;
+ 339   1              memcpy(g_SystemVar.DeviceID, g_SystemParam.HostMacAdr, DEVICE_ID_LENGTH);
+ 340   1      }
+ 341          
+ 342          void SysInit(void)
+ 343          {
+ 344   1              SysParamFromEeprom();
+ 345   1              SysVarInit();
+ 346   1              UartInit();
+ 347   1              HostQueneInit();
+ 348   1              SySTaskInit();
+ 349   1              PowerInit();
+ 350   1              TimerInit();
+ 351   1              WifiInit();
+ 352   1              LedInit();
+ 353   1              KeyInit();
+ 354   1              PCAInit();
+ 355   1              RFInit();
+ 356   1              ToneInit();
+ 357   1              SetTimeout(HOST_STARTUP_PROMPT_TIMER, CreateMsg(SYS_MSG_PLAY_PROMPT_TONE, STARTUP_TONE), SECOND(3));
+ 358   1      }
+ 359          
+ 360          void SysAlarmInfor(MSG_t *pMsg)
+ 361          {
+ 362   1              unsigned char Case;
+ 363   1              unsigned char Name;
+C51 COMPILER V9.00   SYS                                                                   11/07/2015 14:53:13 PAGE 7   
+
+ 364   1              unsigned char Locate;
+ 365   1      
+ 366   1              Locate = (unsigned char)pMsg->Param;
+ 367   1              Name = (unsigned char)(pMsg->Param>>8);
+ 368   1              Case = Name&0X0F;
+ 369   1              Name >>= 4; 
+ 370   1              SysPrintf("\r\nSysAlarmInfor param = %xi", pMsg->Param);
+ 371   1              SysPrintf("\r\nSysAlarmInfor Locate = %x Name = %x Case = %x", Locate, Name, Case);
+ 372   1              AlarmInforPush(Case, Name, Locate);
+ 373   1      }
+ 374          
+ 375          void SysAlarmHandle(MSG_t *pMsg)
+ 376          {
+ 377   1              OpenSiren();
+ 378   1              LedAlarmIndicate(pMsg);
+ 379   1              SysAlarmInfor(pMsg);
+ 380   1              SaveAlarmLog((unsigned char)((pMsg->Param>>8)>>4), (unsigned char)((pMsg->Param>>8)&0x0f), (unsigned char
+             -)pMsg->Param);
+ 381   1              g_SystemVar.AutoUploadTime = g_SystemParam.AutoUploadTime;
+ 382   1      }
+ 383          
+ 384          void SysPowerOff(void)
+ 385          {
+ 386   1              uchar Temp;
+ 387   1              
+ 388   1              BeepPlay();
+ 389   1              OSWait(K_TMO,OS_TICKS_PER_SEC/2);
+ 390   1              CloseSiren();
+ 391   1              RFDisable();
+ 392   1              WifiDisable();
+ 393   1              LedAllOff();
+ 394   1              LM386Set(LM386_OFF);
+ 395   1              EX0 = 0; 
+ 396   1              AUXR2 |= 0X20; //OPEN EXT3 FOR WAKE UP
+ 397   1      SYS_POWER_OFF:  
+ 398   1              _nop_();
+ 399   1              _nop_();
+ 400   1              _nop_();
+ 401   1              _nop_();
+ 402   1              _nop_();
+ 403   1              _nop_();
+ 404   1              PCON=0X02;
+ 405   1              _nop_();
+ 406   1              _nop_();
+ 407   1              _nop_();
+ 408   1              _nop_();
+ 409   1              _nop_();
+ 410   1              _nop_();
+ 411   1      
+ 412   1              Temp = g_RTC.Second;
+ 413   1              if(p_S2==0)
+ 414   1              {
+ 415   2                      while(p_S2==0)
+ 416   2                      {
+ 417   3                              if(g_RTC.Second>(Temp+3))
+ 418   3                              {
+ 419   4                                      IAP_CONTR=0X60; //MCU RESET
+ 420   4                                      while(1);
+ 421   4                              }       
+ 422   3                      }
+ 423   2              }
+ 424   1              else
+C51 COMPILER V9.00   SYS                                                                   11/07/2015 14:53:13 PAGE 8   
+
+ 425   1              {
+ 426   2                      if(p_AC == 0)
+ 427   2                      {
+ 428   3                              IAP_CONTR=0X60; //MCU RESET
+ 429   3                              while(1);
+ 430   3                      }
+ 431   2              }
+ 432   1              goto SYS_POWER_OFF;
+ 433   1      }
+ 434          
+ 435          void SystemSever(MSG_t *pMsg)
+ 436          {
+ 437   1              switch(pMsg->msgID)
+ 438   1              {
+ 439   2                      case SYS_MSG_KEY_PRESS:
+ 440   2                              KeyPadHandler(pMsg);
+ 441   2                              break;
+ 442   2                              
+ 443   2                      case SYS_MSG_RECEIVE_DATA_FROM_USART:
+ 444   2                              UartReceiveHandler(pMsg);               
+ 445   2                              break;
+ 446   2                              
+ 447   2                      case SYS_MSG_RF_DECODE_COMPLETE:
+ 448   2                              RFReceiveHandler();
+ 449   2                              break;
+ 450   2                              
+ 451   2                      case SYS_MSG_PLAY_PROMPT_TONE:
+ 452   2                              PlayPromptTone(pMsg);
+ 453   2                              break;
+ 454   2                      
+ 455   2                      case SYS_MSG_PLAY_DOOR_BELL_TIMEOUT:
+ 456   2                              PlayDoorBellTimeOut();
+ 457   2                              break;
+ 458   2                              
+ 459   2                      case SYS_MSG_HOST_SOS_ALARM:
+ 460   2                      case SYS_MSG_RF_SOS_CMD:
+ 461   2                      case SYS_MSG_RF_ACCESSORY_TAMPER:
+ 462   2                      case SYS_MSG_RF_24HOUR_ZONE:
+ 463   2                      case SYS_MSG_RF_ACCESSORY_LOW_BAT:      
+ 464   2                              SysAlarmHandle(pMsg);
+ 465   2                              break;
+ 466   2                              
+ 467   2                      case SYS_MSG_SIREN_TIME_OUT:
+ 468   2                              CloseSiren();
+ 469   2                              break;
+ 470   2      
+ 471   2                      case SYS_MSG_MINUTE_UPDATE:
+ 472   2                              SysMinuteEventHandle();
+ 473   2                              break;
+ 474   2                              
+ 475   2                      case SYS_MSG_AC_SWITCH:
+ 476   2                              PowerAcSwitchHandle();
+ 477   2                              break;
+ 478   2                              
+ 479   2                      case SYS_MSG_DELAY_ARM_TONE:
+ 480   2                              SysDelayArmBeepTone(pMsg);
+ 481   2                              break;  
+ 482   2      
+ 483   2                      case SYS_MSG_PLAY_TONE:
+ 484   2                              SysPlayBeepTone(pMsg);
+ 485   2                              break;  
+ 486   2      
+C51 COMPILER V9.00   SYS                                                                   11/07/2015 14:53:13 PAGE 9   
+
+ 487   2                      case SYS_MSG_POWER_OFF:
+ 488   2                              SysPowerOff();
+ 489   2                              break;  
+ 490   2      /////////////////WIFI//////////////////////////////
+ 491   2                      case SYS_MSG_WIFI_POWER_ON:
+ 492   2                              WifiPowerOn();
+ 493   2                              break;
+ 494   2                              
+ 495   2                      case SYS_MSG_WIFI_SEND_DEVICE_INFOR:
+ 496   2                              WifiSendDeviceInfor();
+ 497   2                              break;
+ 498   2                              
+ 499   2                      case SYS_MSG_WIFI_STARTUP_RESET:
+ 500   2                              WifiStartupReset();
+ 501   2                              break;
+ 502   2                              
+ 503   2                      case SYS_MSG_WIFI_RESET:
+ 504   2                              WifiReset();
+ 505   2                              break;
+ 506   2      
+ 507   2                      case SYS_MSG_WIFI_CONFIG:
+ 508   2                              WifiConfig();
+ 509   2                              break;
+ 510   2      
+ 511   2                      case SYS_MSG_WIFI_SET_AP_CONNECTED:
+ 512   2                              WifiEntrySetConnectAp();
+ 513   2                              break;
+ 514   2      
+ 515   2                      case SYS_MSG_WIFI_EXIT_SET_AP_CONNECTED:
+ 516   2                              WifiExitSetConnectAp();
+ 517   2                              break;
+ 518   2      
+ 519   2                      case SYS_MSG_WIFI_SET_AP_CONNECTED_SUCCESS:
+ 520   2                              WifiSetConnectApSuccess();
+ 521   2                              break;
+ 522   2      
+ 523   2                      case SYS_MSG_WIFI_SET_PLATFORM_SERVER_ADR:
+ 524   2                              WifiSetCmsAdr();
+ 525   2                              break;
+ 526   2                              
+ 527   2                      case SYS_MSG_RECEIVE_DATA_FROM_WIFI:
+ 528   2                              WifiReceiveDataHandle();
+ 529   2                              break;
+ 530   2      
+ 531   2                      case SYS_MSG_WIFI_DISCONNECT:
+ 532   2                              WifiDisconnect();
+ 533   2                              break;
+ 534   2      
+ 535   2                      case SYS_MSG_WIFI_CONNECTED:
+ 536   2                              WifiConnected();
+ 537   2                              break;
+ 538   2      
+ 539   2                      case SYS_MSG_WIFI_STATION_GOT_IP:
+ 540   2                              WifiGetIP();
+ 541   2                              break;
+ 542   2                              
+ 543   2                      case SYS_MSG_WIFI_AP_STATION_DISCONNECTED:
+ 544   2                              WifiApStationDisconnected();
+ 545   2                              break;
+ 546   2      
+ 547   2                      case SYS_MSG_WIFI_AP_STATION_CONNECTED:
+ 548   2                              WifiApStationConnected();
+C51 COMPILER V9.00   SYS                                                                   11/07/2015 14:53:13 PAGE 10  
+
+ 549   2                              break;
+ 550   2                      
+ 551   2                      case SYS_MSG_WIFI_LOST_CONNECT_PLATFORM:
+ 552   2                              WifiLostConnectPlatform();
+ 553   2                              break;
+ 554   2                              
+ 555   2                      case SYS_MSG_WIFI_CONNECT_PLATFORM:
+ 556   2                              WifiConnectPlatform();
+ 557   2                              break;  
+ 558   2      
+ 559   2                      case SYS_MSG_WIFI_CHECK_PLATFORM_CONNECT_STATUS:
+ 560   2                              WifiCheckPlatformConnect();
+ 561   2                              break;  
+ 562   2                      
+ 563   2                      case SYS_MSG_WIFI_UPLOAD_PLATFORM:
+ 564   2                              WifiUploadEventToPlatform();
+ 565   2                              break;
+ 566   2      
+ 567   2                      case SYS_MSG_WIFI_TCP_RECONNECT:
+ 568   2                              WifiTcpReconnect();
+ 569   2                              break;
+ 570   2      
+ 571   2                      case SYS_MSG_WIFI_DEFAULT:
+ 572   2                              WifiDefault();
+ 573   2                              break;
+ 574   2              }
+ 575   1              
+ 576   1      }
+ 577          
+ 578          void SystemDisarmedStatus(void)
+ 579          {       
+ 580   1              g_SystemVar.SystemNextStatus = SYSTEM_DISARMED_STATUS;
+ 581   1              g_SystemVar.SystemCurrentStatus = g_SystemVar.SystemNextStatus;
+ 582   1              g_SystemParam.SystemStatus = g_SystemVar.SystemCurrentStatus;
+ 583   1              if(g_SystemVar.StartupFlag == FALSE)
+ 584   1              {
+ 585   2                      SysParamToEeprom();
+ 586   2                      g_SystemVar.AutoUploadTime = SYS_STATUS_SWITCH_UPLOAD_TIME;
+ 587   2              }
+ 588   1              else
+ 589   1                      g_SystemVar.StartupFlag = FALSE;        
+ 590   1              
+ 591   1              SysPrintf("\r\nEntry system disarmed status.");
+ 592   1              while(g_SystemVar.SystemCurrentStatus == g_SystemVar.SystemNextStatus)
+ 593   1              {
+ 594   2                      HostMsgPend();
+ 595   2                      switch(g_HostMsg.msgID)
+ 596   2                      {
+ 597   3                              case SYS_MSG_INIT_CURRENT_STATUS:
+ 598   3                                      LedSysStatusIndicate();
+ 599   3                                      g_SystemVar.DelayArmStatus = FALSE;
+ 600   3                                      g_SystemVar.DelayArmCount = 0;
+ 601   3                                      TimerUnitDel(HOST_DELAY_ARM_TIMER);
+ 602   3                                      g_SystemVar.DelayAlarmStatus = FALSE;
+ 603   3                                      TimerUnitDel(HOST_DELAY_ARM_TIMER);
+ 604   3                                      g_SystemVar.DelayAlarmCount = 0;
+ 605   3                                      CloseSiren();
+ 606   3                                      break;
+ 607   3                                      
+ 608   3                              case SYS_MSG_LEFT_CURRENT_STATUS:
+ 609   3                                      g_SystemVar.SystemNextStatus = g_HostMsg.Param;
+ 610   3                                      HostMsgPost( SYS_MSG_INIT_CURRENT_STATUS, g_HostMsg.Param>>8);
+C51 COMPILER V9.00   SYS                                                                   11/07/2015 14:53:13 PAGE 11  
+
+ 611   3                                      SysPrintf("\r\nSYS_MSG_LEFT_CURRENT_STATUS.");
+ 612   3                                      break;          
+ 613   3                      }
+ 614   2                      SystemSever(&g_HostMsg);
+ 615   2              }
+ 616   1              SysPrintf("\r\nExit system disarmed status.");
+ 617   1      }
+ 618          
+ 619          void SystemArmedStatus(void)
+ 620          {
+ 621   1              g_SystemVar.SystemNextStatus = SYSTEM_ARMED_STATUS;
+ 622   1              g_SystemVar.SystemCurrentStatus = g_SystemVar.SystemNextStatus;
+ 623   1              g_SystemParam.SystemStatus = g_SystemVar.SystemCurrentStatus;
+ 624   1              if(g_SystemVar.StartupFlag == FALSE)
+ 625   1              {
+ 626   2                      SysParamToEeprom();
+ 627   2                      g_SystemVar.AutoUploadTime = SYS_STATUS_SWITCH_UPLOAD_TIME;
+ 628   2              }
+ 629   1              else
+ 630   1                      g_SystemVar.StartupFlag = FALSE;        
+ 631   1              g_SystemVar.DelayArmStatus = FALSE;
+ 632   1              g_SystemVar.DelayArmCount = 0;  
+ 633   1              TimerUnitDel(HOST_DELAY_ARM_TIMER);
+ 634   1              SysPrintf("\r\nEntry system armed status.");
+ 635   1              while(g_SystemVar.SystemCurrentStatus == g_SystemVar.SystemNextStatus)
+ 636   1              {
+ 637   2                      HostMsgPend();
+ 638   2                      switch(g_HostMsg.msgID)
+ 639   2                      {
+ 640   3                              case SYS_MSG_INIT_CURRENT_STATUS:
+ 641   3                                      LedSysStatusIndicate();
+ 642   3                                      break;          
+ 643   3                      
+ 644   3                              case SYS_MSG_RF_NORMAL_ZONE:
+ 645   3                              case SYS_MSG_RF_AT_HOME_ZONE:
+ 646   3                              case SYS_MSG_RF_DELAY_ZONE:
+ 647   3                                      SysAlarmHandle(&g_HostMsg);
+ 648   3                                      break;
+ 649   3                                      
+ 650   3                              case SYS_MSG_LEFT_CURRENT_STATUS:
+ 651   3                                      g_SystemVar.SystemNextStatus = g_HostMsg.Param;
+ 652   3                                      HostMsgPost( SYS_MSG_INIT_CURRENT_STATUS, g_HostMsg.Param>>8);
+ 653   3                                      SysPrintf("\r\nSYS_MSG_LEFT_CURRENT_STATUS.");
+ 654   3                                      break;                  
+ 655   3      
+ 656   3                      }
+ 657   2                      SystemSever(&g_HostMsg);
+ 658   2              }
+ 659   1              SysPrintf("\r\nExit system arm status.");
+ 660   1      }
+ 661          
+ 662          void SystemHomeArmedStatus(void)
+ 663          {
+ 664   1              g_SystemVar.SystemNextStatus = SYSTEM_HOME_ARMED_STATUS;
+ 665   1              g_SystemVar.SystemCurrentStatus = g_SystemVar.SystemNextStatus;
+ 666   1              g_SystemParam.SystemStatus = g_SystemVar.SystemCurrentStatus;
+ 667   1              if(g_SystemVar.StartupFlag == FALSE)
+ 668   1              {
+ 669   2                      SysParamToEeprom();
+ 670   2                      g_SystemVar.AutoUploadTime = SYS_STATUS_SWITCH_UPLOAD_TIME;
+ 671   2              }
+ 672   1              else
+C51 COMPILER V9.00   SYS                                                                   11/07/2015 14:53:13 PAGE 12  
+
+ 673   1                      g_SystemVar.StartupFlag = FALSE;        
+ 674   1              g_SystemVar.DelayArmStatus = FALSE;
+ 675   1              g_SystemVar.DelayArmCount = 0;  
+ 676   1              TimerUnitDel(HOST_DELAY_ARM_TIMER);
+ 677   1              SysPrintf("\r\nEntry system home arm status.");
+ 678   1              while(g_SystemVar.SystemCurrentStatus == g_SystemVar.SystemNextStatus)
+ 679   1              {
+ 680   2                      HostMsgPend();
+ 681   2                      switch(g_HostMsg.msgID)
+ 682   2                      {
+ 683   3                              case SYS_MSG_INIT_CURRENT_STATUS:
+ 684   3                                      LedSysStatusIndicate();
+ 685   3                                      break;
+ 686   3                                      
+ 687   3                              case SYS_MSG_RF_NORMAL_ZONE:
+ 688   3                              case SYS_MSG_RF_DELAY_ZONE:
+ 689   3                                      SysAlarmHandle(&g_HostMsg);
+ 690   3                                      break;
+ 691   3                                      
+ 692   3                              case SYS_MSG_LEFT_CURRENT_STATUS:
+ 693   3                                      g_SystemVar.SystemNextStatus = g_HostMsg.Param;
+ 694   3                                      HostMsgPost( SYS_MSG_INIT_CURRENT_STATUS, g_HostMsg.Param>>8);
+ 695   3                                      SysPrintf("\r\nSYS_MSG_LEFT_CURRENT_STATUS.");
+ 696   3                                      break;                  
+ 697   3      
+ 698   3                      }
+ 699   2                      SystemSever(&g_HostMsg);
+ 700   2              }
+ 701   1              SysPrintf("\r\nExit system home arm status.");
+ 702   1      }
+ 703          
+ 704          
+ 705          void SystemStatusMachine(unsigned char SystemStatus)
+ 706          {
+ 707   1              switch(SystemStatus)
+ 708   1              {                       
+ 709   2                      case SYSTEM_ARMED_STATUS:
+ 710   2                              SystemArmedStatus();
+ 711   2                              break;
+ 712   2                              
+ 713   2                      case SYSTEM_DISARMED_STATUS:
+ 714   2                              SystemDisarmedStatus();
+ 715   2                              break;
+ 716   2                              
+ 717   2                      case SYSTEM_HOME_ARMED_STATUS:
+ 718   2                              SystemHomeArmedStatus();
+ 719   2                              break;
+ 720   2      
+ 721   2                      case SYSTEM_RF_REGISTER_STATUS:
+ 722   2                              SystemRfRegisterStatus();
+ 723   2                              break;
+ 724   2      
+ 725   2                      default:
+ 726   2                              SystemDisarmedStatus();
+ 727   2                              break;
+ 728   2              }
+ 729   1              
+ 730   1              g_SystemVar.SystemLastStatus = g_SystemVar.SystemCurrentStatus;
+ 731   1              g_SystemVar.SystemCurrentStatus = SYSTEM_NULL_STATUS;
+ 732   1      }
+ 733          
+ 734          
+C51 COMPILER V9.00   SYS                                                                   11/07/2015 14:53:13 PAGE 13  
+
+ 735          
+ 736          //////////////////lib function////////////////////////////
+ 737          void DelayNop(unsigned char nop)
+ 738          {
+ 739   1              unsigned char index;
+ 740   1      
+ 741   1              for(index=0; index<nop; index++)
+ 742   1              {
+ 743   2                      ;
+ 744   2              }
+ 745   1      }
+ 746          
+ 747          
+ 748          unsigned char AscToHex(unsigned char Asc_Data)
+ 749          {
+ 750   1              if((Asc_Data>='0')&&(Asc_Data<='9'))
+ 751   1                      return (Asc_Data-'0');
+ 752   1              else if((Asc_Data>='A')&&(Asc_Data<='F'))
+ 753   1                      return (Asc_Data-('A'-10));
+ 754   1              else if((Asc_Data>='a')&&(Asc_Data<='f'))
+ 755   1                      return (Asc_Data-('a'-10));
+ 756   1              return 0xff;
+ 757   1      }
+ 758          
+ 759          
+ 760          
+ 761          
+ 762          
+ 763          unsigned char AscStrToByte(unsigned char *Asc_Str)
+ 764          {
+ 765   1              unsigned char temp;
+ 766   1              unsigned char ret_val;
+ 767   1              
+ 768   1              temp = AscToHex(*Asc_Str++);
+ 769   1              ret_val = temp<<4;
+ 770   1              temp = AscToHex(*Asc_Str++);
+ 771   1              ret_val += temp;
+ 772   1      
+ 773   1              return ret_val;
+ 774   1      }
+ 775          
+ 776          void HexToAsc(unsigned char *dst, unsigned char src)
+ 777          {
+ 778   1              unsigned char Hex_H, Hex_L;
+ 779   1              
+ 780   1              Hex_H = src>>4;
+ 781   1              Hex_L = src&0x0f;
+ 782   1              
+ 783   1              if((Hex_H==0)||((Hex_H>0)&&(Hex_H<=9)))
+ 784   1              {
+ 785   2                      *dst++ = Hex_H + '0';
+ 786   2              }
+ 787   1              else
+ 788   1              {
+ 789   2                      *dst++ = Hex_H + 'A' -10;
+ 790   2              }
+ 791   1      
+ 792   1              if((Hex_L==0)||((Hex_L>0)&&(Hex_L<=9)))
+ 793   1              {
+ 794   2                      *dst = Hex_L + '0';
+ 795   2              }
+ 796   1              else
+C51 COMPILER V9.00   SYS                                                                   11/07/2015 14:53:13 PAGE 14  
+
+ 797   1              {
+ 798   2                      *dst = Hex_L + 'A' -10;
+ 799   2              }       
+ 800   1              
+ 801   1      }
+ 802          
+ 803          
+ 804          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2874    ----
+   CONSTANT SIZE    =    345    ----
+   XDATA SIZE       =    738      30
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

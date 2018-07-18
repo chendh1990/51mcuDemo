@@ -1,0 +1,21 @@
+"..\out\obj\OS_CORE.obj",
+"..\out\obj\OS_Q.obj",
+"..\out\obj\OS_SEM.obj",
+"..\out\obj\OS_CPU_C.obj",
+"..\out\obj\OS_CPU_A.obj",
+"..\out\obj\timer.obj",
+"..\out\obj\tone.obj",
+"..\out\obj\uart.obj",
+"..\out\obj\eeprom.obj",
+"..\out\obj\key.obj",
+"..\out\obj\LED.obj",
+"..\out\obj\main.obj",
+"..\out\obj\PCA.obj",
+"..\out\obj\power.obj",
+"..\out\obj\RF_remote.obj",
+"..\out\obj\sys.obj",
+"..\out\obj\SysClk.obj",
+"..\out\obj\HistoryLog.obj",
+"..\out\obj\WIFI.obj" 
+TO "..\out\obj\Door_bell" 
+PRINT("..\out\list\Door_bell.m51") RAMSIZE(256) 

@@ -1,0 +1,364 @@
+C51 COMPILER V9.00   TONE                                                                  11/07/2015 14:53:11 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE TONE
+OBJECT MODULE PLACED IN ..\out\obj\tone.obj
+COMPILER INVOKED BY: C:\Program Files\Keil\C51\BIN\C51.EXE ..\source\tone.c LARGE BROWSE INCDIR(..\OS;..\include) DEBUG 
+                    -OBJECTEXTEND PRINT(..\out\list\tone.lst) OBJECT(..\out\obj\tone.obj)
+
+line level    source
+
+   1          #include "sys.h"
+   2          #include "timer.h"
+   3          #include "uart.h"
+   4          #include "PCA.h"
+   5          #include "tone.h"
+   6          #include "RF_remote.h"
+   7          #include "led.h"
+   8          
+   9          VoidFun PWMIsr;
+  10          
+  11          xdata unsigned char PWMFrequenceIndex;
+  12          xdata unsigned char PWMRepeatTime;
+  13          xdata unsigned char BeepToneType;
+  14          xdata unsigned int PWMTime;
+  15          unsigned int PCC_Value;
+  16          xdata Beep_Var_t g_BeepTone;
+  17          
+  18          code unsigned int  SirenFrequenceTable[SIREN_FREQUENCE_TABLE_LENGTH]=
+  19          {       
+  20                  (FOSC1*13), 
+  21                  (FOSC1*18),
+  22                  (FOSC1*26), 
+  23                  (FOSC1*32),
+  24                  (FOSC1*38), 
+  25                  (FOSC1*44),
+  26                  (FOSC1*50), 
+  27                  (FOSC1*56),
+  28                  (FOSC1*62), 
+  29                  (FOSC1*69),
+  30                  (FOSC1*76), 
+  31                  (FOSC1*82),
+  32                  (FOSC1*88), 
+  33                  (FOSC1*94),
+  34                  (FOSC1*100),                                            
+  35          };
+  36          
+  37          void LM386Set(unsigned char OnOrOff)
+  38          {
+  39   1              if(OnOrOff == LM386_OFF)
+  40   1              {
+  41   2                      p_8002_EN = LM386_OFF;
+  42   2              }
+  43   1              else
+  44   1              {
+  45   2                      p_8002_EN = LM386_ON;
+  46   2              }
+  47   1      }
+  48          
+  49          void SirenIsr(void)
+  50          {
+  51   1              CCAP0L = PCC_Value;
+  52   1              CCAP0H = PCC_Value >> 8;          
+  53   1              PCC_Value += PWMTime;  
+  54   1              p_PWM = ~p_PWM;
+C51 COMPILER V9.00   TONE                                                                  11/07/2015 14:53:11 PAGE 2   
+
+  55   1              PWMRepeatTime++;
+  56   1              if(PWMRepeatTime > MAX_SIREN_SAME_FREQUENCE_TIME)
+  57   1              {
+  58   2                      PWMRepeatTime = 0;      
+  59   2                      PWMFrequenceIndex--;
+  60   2                      PWMTime = SirenFrequenceTable[PWMFrequenceIndex];
+  61   2                      
+  62   2                      if(PWMFrequenceIndex == 0)
+  63   2                      {
+  64   3                              PWMFrequenceIndex = SIREN_FREQUENCE_TABLE_LENGTH;
+  65   3                      }
+  66   2              }
+  67   1      
+  68   1      }
+  69          
+  70          void PWMOn(void)
+  71          {
+  72   1              g_SystemVar.PWMFlag = TRUE;
+  73   1              g_BeepTone.State = BEEP_IDLE;
+  74   1              CCAPM0 = 0;
+  75   1              p_PWM = 1;
+  76   1              LM386Set(LM386_ON);
+  77   1              PWMRepeatTime = 0;
+  78   1              PWMFrequenceIndex = SIREN_FREQUENCE_TABLE_LENGTH - 1; 
+  79   1              PCC_Value = SirenFrequenceTable[PWMFrequenceIndex];
+  80   1              PWMTime = SirenFrequenceTable[PWMFrequenceIndex];
+  81   1              PWMIsr = SirenIsr;
+  82   1              CMOD = 0;  
+  83   1              CCAP0L = PCC_Value;
+  84   1              CCAP0H = PCC_Value >> 8;  
+  85   1              CCAPM0 = 0x49;        
+  86   1              CCON = 0x40; 
+  87   1      }
+  88          
+  89          void PWMOff(void)
+  90          {
+  91   1              g_SystemVar.PWMFlag = FALSE;
+  92   1              CCAPM0 = 0;
+  93   1              p_PWM = 0;
+  94   1              LM386Set(LM386_OFF);
+  95   1      }
+  96          
+  97          void ToneRoutineHandle(void)
+  98          {
+  99   1              if(g_SystemVar.PlayStartupToneCount > 0)
+ 100   1              {
+ 101   2                      if(--g_SystemVar.PlayStartupToneCount == 0)
+ 102   2                      {
+ 103   3                              HostMsgPost(SYS_MSG_PLAY_PROMPT_TONE, STARTUP_TONE);
+ 104   3                      }
+ 105   2              }
+ 106   1                      
+ 107   1              if(g_SystemVar.PlayDoorTimeout > 0)
+ 108   1              {
+ 109   2                      if(--g_SystemVar.PlayDoorTimeout == 0)
+ 110   2                      {
+ 111   3                              HostMsgPost(SYS_MSG_PLAY_DOOR_BELL_TIMEOUT, NULL);
+ 112   3                      }
+ 113   2              }
+ 114   1      
+ 115   1              if(g_SystemVar.SirenLastingTime > 0)
+ 116   1              {
+C51 COMPILER V9.00   TONE                                                                  11/07/2015 14:53:11 PAGE 3   
+
+ 117   2                      if(--g_SystemVar.SirenLastingTime == 0)
+ 118   2                      {
+ 119   3                              HostMsgPost(SYS_MSG_SIREN_TIME_OUT, NULL);
+ 120   3                      }
+ 121   2              }
+ 122   1      }
+ 123          
+ 124          void BeepInint(void)
+ 125          {
+ 126   1              g_BeepTone.State = BEEP_IDLE;
+ 127   1      
+ 128   1              SysTaskEnable(BEEPER_TASK_ID, SYS_RUN_TASK_IMMEDIATELY);
+ 129   1      }
+ 130          
+ 131          void BeepTone(unsigned char BeepType)
+ 132          {
+ 133   1              if((g_SystemVar.PWMFlag == TRUE) 
+ 134   1                      ||(g_BeepTone.State != BEEP_IDLE)
+ 135   1                      ||(g_SystemVar.PlayDoorBell == TRUE))
+ 136   1                      return;
+ 137   1              SysPrintf( "\r\nBeepTone");
+ 138   1              g_BeepTone.State = BEEP_PLAY;
+ 139   1              g_BeepTone.Mode = BeepType;
+ 140   1              g_BeepTone.OnTime = 1;
+ 141   1              switch(BeepType)
+ 142   1              {
+ 143   2                      case BEEP_NORMAL:
+ 144   2                              g_BeepTone.OnTime = 1;
+ 145   2                              break;
+ 146   2      
+ 147   2                      case BEEP_TWO:
+ 148   2                              g_BeepTone.OnTime = 2;
+ 149   2                              break;  
+ 150   2      
+ 151   2                      case BEEP_CONFIRM:
+ 152   2                              g_BeepTone.OnTime = 2;
+ 153   2                              break;  
+ 154   2              }
+ 155   1      }
+ 156          
+ 157          void BeepPlay(void)
+ 158          {
+ 159   1              LM386Set(LM386_ON);
+ 160   1              PWMIsr = BeepIsr;
+ 161   1              PCC_Value = 625;  // 4khz
+ 162   1              CCAP0L = PCC_Value;
+ 163   1              CCAP0H = PCC_Value >> 8;
+ 164   1              CCAPM0 = 0x49;
+ 165   1      }
+ 166          
+ 167          void BeepStop(void)
+ 168          {
+ 169   1              PWMOff();
+ 170   1      }
+ 171          
+ 172          TaskTimeout_t BeepTask(void)
+ 173          {
+ 174   1              TaskTimeout_t cTimeToRun;
+ 175   1              
+ 176   1              cTimeToRun = SYS_RUN_TASK_IMMEDIATELY;
+ 177   1              switch(g_BeepTone.State)
+ 178   1              {
+C51 COMPILER V9.00   TONE                                                                  11/07/2015 14:53:11 PAGE 4   
+
+ 179   2                      case BEEP_PLAY:
+ 180   2                              BeepPlay();
+ 181   2                              cTimeToRun = 1;//SYS_RUN_TASK_IMMEDIATELY;
+ 182   2                              if(g_BeepTone.Mode == BEEP_CONFIRM)
+ 183   2                              {
+ 184   3                                      if(g_BeepTone.OnTime == 1)
+ 185   3                                      {
+ 186   4                                              cTimeToRun = 3;
+ 187   4                                      }
+ 188   3                              }
+ 189   2                              g_BeepTone.State = BEEP_STOP;
+ 190   2                              break;
+ 191   2                              
+ 192   2                      case BEEP_STOP:
+ 193   2                              BeepStop();
+ 194   2                              g_BeepTone.OnTime--;
+ 195   2                              g_BeepTone.State = g_BeepTone.OnTime==0 ? BEEP_IDLE : BEEP_PLAY;
+ 196   2                              break;
+ 197   2              }
+ 198   1              
+ 199   1              return cTimeToRun;
+ 200   1      }
+ 201          
+ 202          void ToneInit(void)
+ 203          {
+ 204   1      #if defined(HW_T0_2)
+              //////p_8002_EN port set////////////////
+                      P2M0 |= 0x10; 
+                      P2M1 &= 0xEF;
+              //////p_PWM port set////////////////
+                      P2M0 |= 0x08; 
+                      P2M1 &= 0xF7;           
+              //////p_WT port set////////////////
+                      P2M0 |= 0x03; 
+                      P2M1 &= 0xFC;           
+                      p_WT_DATA = 0;
+                      p_WT_RESET = 0;
+              //////////////////////////
+              #else
+ 218   1      //////p_8002_EN port set////////////////
+ 219   1              P2M0 |= 0x10; 
+ 220   1              P2M1 &= 0xEF;
+ 221   1      //////p_PWM port set////////////////
+ 222   1              P2M0 |= 0x08; 
+ 223   1              P2M1 &= 0xF7;           
+ 224   1      //////p_WT port set////////////////
+ 225   1              P3M0 |= 0x08; 
+ 226   1              P3M1 &= 0xF7;           
+ 227   1              p_WT_DATA = 0;
+ 228   1              p_WT_RESET = 0;
+ 229   1      //////////////////////////
+ 230   1      #endif
+ 231   1              LM386Set(LM386_OFF);
+ 232   1              BeepInint();
+ 233   1      }
+ 234          
+ 235          void BeepIsr(void)
+ 236          {
+ 237   1              CCAP0L = PCC_Value;
+ 238   1              CCAP0H = PCC_Value >> 8;          
+ 239   1              PCC_Value += 625;  // 4khz
+ 240   1              p_PWM = ~p_PWM;
+C51 COMPILER V9.00   TONE                                                                  11/07/2015 14:53:11 PAGE 5   
+
+ 241   1      }
+ 242          
+ 243          void OpenSiren(void)
+ 244          {
+ 245   1              if(g_SystemParam.SirenLastingTime == 0)
+ 246   1                      g_SystemVar.SirenLastingTime = 60;
+ 247   1              else
+ 248   1                      g_SystemVar.SirenLastingTime = g_SystemParam.SirenLastingTime*60;
+ 249   1      #ifdef MAX_SIREN_3_MINUTE
+ 250   1              if(g_SystemVar.SirenLastingTime > 180)// 3minute=3*60=180
+ 251   1              {
+ 252   2                      g_SystemVar.SirenLastingTime = 180;
+ 253   2              }
+ 254   1      #endif
+ 255   1              if((g_SystemParam.SirenMuteFlag==SIREN_MUTE)||(g_SystemParam.SirenLastingTime==0))
+ 256   1              {
+ 257   2                      return;
+ 258   2              }
+ 259   1              
+ 260   1              SysPrintf( "\r\nOpenSiren");
+ 261   1              g_SystemVar.SirenStatus = SIREN_ON;
+ 262   1              PWMOn();
+ 263   1      }
+ 264          
+ 265          
+ 266          
+ 267          void CloseSiren(void)
+ 268          {
+ 269   1              SysPrintf( "\r\nCloseSiren");
+ 270   1              p_PWM = 0;
+ 271   1              LedCloseZoneBlink();
+ 272   1              LedRefresh();
+ 273   1              g_SystemVar.SirenStatus = SIREN_OFF;
+ 274   1              g_SystemVar.SirenResuceCount = 0;
+ 275   1              g_SystemVar.SirenLastingTime = 0;
+ 276   1              PWMOff();
+ 277   1      }
+ 278          
+ 279          void PlayPromptTone(MSG_t *pMsg)
+ 280          {
+ 281   1              unsigned char index;
+ 282   1              unsigned char PromptID;
+ 283   1              
+ 284   1              if(g_SystemVar.PWMFlag == TRUE)
+ 285   1              {
+ 286   2                      return;
+ 287   2              }       
+ 288   1              g_SystemVar.PlayDoorBell = TRUE;
+ 289   1              g_BeepTone.State = BEEP_IDLE;
+ 290   1              PromptID = (unsigned char)pMsg->Param;
+ 291   1              //SysPrintf("\r\nPromptID = %d", PromptID);
+ 292   1              if(PromptID == BELL_TONE)
+ 293   1              {
+ 294   2                      g_SystemVar.PlayDoorTimeout = PLAY_DOOR_BELL_TIME;
+ 295   2              }
+ 296   1              else if(PromptID == STARTUP_TONE)
+ 297   1              {
+ 298   2                      g_SystemVar.PlayDoorTimeout = PLAY_STARTUP_TONE_TIME;
+ 299   2              }
+ 300   1              p_WT_DATA = 0;
+ 301   1              p_WT_RESET= 1;
+ 302   1              OSWait(K_TMO,OS_TICKS_PER_SEC/50);
+C51 COMPILER V9.00   TONE                                                                  11/07/2015 14:53:11 PAGE 6   
+
+ 303   1              p_WT_RESET= 0;
+ 304   1              OSWait(K_TMO,OS_TICKS_PER_SEC/50);
+ 305   1              for(index=0; index<PromptID; index++)
+ 306   1              {
+ 307   2                      p_WT_DATA = 1;
+ 308   2                      OSWait(K_TMO,OS_TICKS_PER_SEC/50);
+ 309   2                      p_WT_DATA = 0;
+ 310   2                      OSWait(K_TMO,OS_TICKS_PER_SEC/50);
+ 311   2              }
+ 312   1              LM386Set(LM386_ON);
+ 313   1      }
+ 314          
+ 315          void PlayDoorBellTimeOut(void)
+ 316          {       
+ 317   1              SysPrintf( "\r\nPlayDoorBellTimeOut");
+ 318   1              p_WT_DATA = 0;
+ 319   1              p_WT_RESET = 0;
+ 320   1              g_SystemVar.PlayDoorBell = FALSE;
+ 321   1              g_SystemVar.PlayDoorTimeout = 0;
+ 322   1      
+ 323   1              if(g_SystemVar.PWMFlag == FALSE)
+ 324   1              {
+ 325   2                      LM386Set(LM386_OFF);
+ 326   2              }       
+ 327   1      }
+ 328          
+ 329          ///////////////////////////////////////////////////////////////////
+ 330          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    825    ----
+   CONSTANT SIZE    =     88    ----
+   XDATA SIZE       =     13       3
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,102 @@
+C51 COMPILER V9.00   MAIN                                                                  11/07/2015 14:53:12 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN ..\out\obj\main.obj
+COMPILER INVOKED BY: C:\Program Files\Keil\C51\BIN\C51.EXE ..\source\main.c LARGE BROWSE INCDIR(..\OS;..\include) DEBUG 
+                    -OBJECTEXTEND PRINT(..\out\list\main.lst) OBJECT(..\out\obj\main.obj)
+
+line level    source
+
+   1          ///////////////////////////////////////////////////////////////////////////////
+   2          ///////////////////////////////////////////////////////////////////////////////
+   3          // 程序说明部分
+   4          // 产品名称  ： DOOR BELL
+   5          // 单片机型号： STC15L2K48S2
+   6          // 时钟选择  ： 30 MHZ
+   7          // 日      期： 2015-06-29
+   8          // 公      司： 深安科技
+   9          ////////////////////////////////////////////////////////////////////////////////
+  10          
+  11          #include "sys.h"
+  12          #include "key.h"
+  13          #include "uart.h"
+  14          #include "tone.h"
+  15          #include "WIFI.h"
+  16          
+  17          extern void SysClkInit(void);
+  18          extern void PCAInit(void);
+  19          extern void RFInit(void);
+  20          
+  21          void main(void)
+  22          {
+  23   1              SysClkInit();
+  24   1              OSStart();
+  25   1      }
+  26          
+  27          void TaskA(void)
+  28          {
+  29   1              OSSemCreate(SEM_PRINTF, 1);
+  30   1              OSSemCreate(SEM_STC_FLASH, 1);  
+  31   1              SysInit();
+  32   1              SysPrintf("\r\nstart on TaskA!");
+  33   1              HostMsgPost( SYS_MSG_INIT_CURRENT_STATUS, NULL);
+  34   1              while(1)
+  35   1              {
+  36   2                      SystemStatusMachine(g_SystemVar.SystemNextStatus);
+  37   2              }
+  38   1      }
+  39          
+  40          void TaskB(void)
+  41          {
+  42   1              SysPrintf("\r\nstart on TaskB!");
+  43   1              while(1)
+  44   1              {       
+  45   2                      SysRunTask();
+  46   2                      OSWait(K_TMO,OS_TICKS_PER_SEC/10);
+  47   2              }
+  48   1      }
+  49          
+  50          void TaskC(void)
+  51          {
+  52   1              SysPrintf("\r\nstart on TaskC!");
+  53   1              while(1)
+  54   1              {
+C51 COMPILER V9.00   MAIN                                                                  11/07/2015 14:53:12 PAGE 2   
+
+  55   2                      OSWait(K_TMO,OS_TICKS_PER_SEC/5);
+  56   2              }
+  57   1      }
+  58          
+  59          void TaskD(void)
+  60          {
+  61   1              SysPrintf("\r\nstart on TaskD!");
+  62   1              while(1)
+  63   1              {
+  64   2                      OSWait(K_TMO,OS_TICKS_PER_SEC/2);
+  65   2              }
+  66   1      }
+  67          
+  68          void TaskE(void)
+  69          {
+  70   1              SysPrintf("\r\nstart on TaskE!");
+  71   1              while(1)
+  72   1              {
+  73   2                      OSWait(K_TMO,OS_TICKS_PER_SEC/2);
+  74   2              }
+  75   1      }
+  76          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    126    ----
+   CONSTANT SIZE    =     90    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
